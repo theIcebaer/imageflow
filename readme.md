@@ -12,4 +12,5 @@ Then install the project as local development package:
 cd repo
 pip install -e .
 ```
+Note that there is a known issue with pycharm and local dev packages. Im not sure yet how to resolve this best, but one way is to tell pycharm to directly manipulate the PYTHONPATH environment variable.
 Scripts for unsupervised and supervised training can be found in /scritps.
