@@ -21,8 +21,8 @@ import torch
 # from voxelmorph.torch.layers import VecInt
 # from voxelmorph.torch.layers import SpatialTransformer
 
-from src.nets import Reg_mnist_cINN
-from src.dataset import MnistDataset
+from imageflow.nets import Reg_mnist_cINN
+from imageflow.dataset import MnistDataset
 
 # -- settings ---------------------------------------------------------------------------------------------------------
 

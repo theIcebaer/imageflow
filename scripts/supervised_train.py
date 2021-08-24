@@ -6,9 +6,9 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
-from src.nets import Reg_mnist_cINN_supervised as CINN
-from src.nets import Reg_mnist_cINN_Unet
-from src.dataset import MnistDataset
+from imageflow.nets import Reg_mnist_cINN_supervised as CINN
+from imageflow.nets import Reg_mnist_cINN_Unet
+from imageflow.dataset import MnistDataset
 
 device = torch.device('cpu')
 batch_size = 64
