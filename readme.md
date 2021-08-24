@@ -4,7 +4,7 @@ upon the idea of the voxelmorph framework, but tries
 to implement flow
 field generation via normalized flows.
 
-Note: you will need a working installation of current pytorch, which is not explicitly installed by the setup.py since what exact version you want might be dependent on your system.
+Note: you will need a working installation of current pytorch, which is not explicitly installed by the setup.py since the exact version you want might be dependent on your system.
 
 To build it locally clone the git repository:
 ```
