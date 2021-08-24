@@ -24,3 +24,27 @@ def apply_flow(volume, v_field, device=torch.device('cpu'), integrator=None, tra
     transformed = transformer(volume, deformation)
 
     return transformed, deformation
+
+
+def make_models(conf):
+    """ building list of networks to train from a config dict. Maybe do a yaml file or something else for this later.
+    config options:
+    - supervised / unsupervised
+    - conditioning network
+        - pretrained or not
+    - cINN structure
+        - plain/multiresolution
+        -
+    """
+    if conf.supervised:
+        if conf.cond_net is not None:
+            from imageflow.nets import CondNet
+            if conf.cond_net == "resnet":
+                from torchvision.models import resnet18
+                ext_model = resnet18(pretrained=conf.pretrained)
+                cond_net = CondNet()
+
+
+    else:  # unsupervised
+        pass
+
