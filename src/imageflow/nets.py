@@ -100,6 +100,9 @@ class CondNet(nn.Module):
         return outputs[1:]
 
 class Reg_mnist_cINN_Unet(nn.Module):
+    """
+    Structure from ardizzone et al. on conditional INNs TODO:ref
+    """
     def __init__(self):
         super(Reg_mnist_cINN_Unet, self).__init__()
         self.cinn = self.build_inn()
@@ -264,3 +267,18 @@ class Reg_mnist_cINN_supervised(nn.Module):
         for p in self.cinn.parameters():
             if p.requires_grad:
                 p.data = 0.01 * torch.randn_like(p)
+
+
+class CondNetWrapper(nn.Module):
+    def __init__(self, cond_net, type=None):
+        super().__init__()
+        self.upscale = nn.Conv2d(2, 3, 3, padding=1)  # upscale the 2d-like image to a 3d input for the predefined network
+        if type == "resnet":
+            self.features = nn.Sequential(*list(cond_net.children())[:-2])
+        elif type == "mobilenet":
+            self.features = cond_net.features
+
+    def forward(self, x):
+        x = self.upscale(x)
+        x = self.features(x)
+        return x
