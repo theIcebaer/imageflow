@@ -62,7 +62,7 @@ class Reg_mnist_cINN(nn.Module):
         return target_pred, v_field, logj_rev
 
 
-class CondNet(nn.Module):
+class MultiresCondNet(nn.Module):
 
     def __init__(self):
         super().__init__()
@@ -82,10 +82,11 @@ class CondNet(nn.Module):
                                                 nn.Sequential(nn.LeakyReLU(),nn.Conv2d(128, 128, 3, padding=1, stride=2)),
                                                 nn.Sequential(nn.LeakyReLU(), nn.AvgPool2d(3), Flatten(), nn.Linear(512, 512))
                                                 ])
+
     def forward(self, c):
         outputs = [c]
         # print(c.shape)
-        for i, m  in enumerate(self.resolution_levels):
+        for i, m in enumerate(self.resolution_levels):
             # print(i)
             # print(m.shape)
             outputs.append(m(outputs[-1]))
@@ -99,14 +100,15 @@ class CondNet(nn.Module):
         # outputs[-1] =  self.Linear(outputs[-1])
         return outputs[1:]
 
-class Reg_mnist_cINN_Unet(nn.Module):
+
+class CinnConvMultires(nn.Module):
     """
     Structure from ardizzone et al. on conditional INNs TODO:ref
     """
     def __init__(self):
-        super(Reg_mnist_cINN_Unet, self).__init__()
+        super(CinnConvMultires, self).__init__()
         self.cinn = self.build_inn()
-        self.cond_net = CondNet()
+        self.cond_net = MultiresCondNet()
 
     def build_inn(self):
 
@@ -199,59 +201,35 @@ class Reg_mnist_cINN_Unet(nn.Module):
                 p.data = 0.01 * torch.randn_like(p)
 
 
-class Reg_mnist_cINN_supervised(nn.Module):
+class CinnBasic(nn.Module):
+    """
+    Class for supervised regis
+    """
     def __init__(self, cond_net):
-        super(Reg_mnist_cINN, self).__init__()
+        super(CinnBasic, self).__init__()
         self.flat_layer = torch.nn.Flatten(start_dim=1, end_dim=-1)
         self.cinn = self.build_inn()
         self.cond_net = cond_net
 
     def build_inn(self):
 
-            def subnet(ch_in, ch_out):
-                return nn.Sequential(nn.Linear(ch_in, 512),
-                                    nn.ReLU(),
-                                    nn.Linear(512, ch_out))
-            # def sub_conv(ch_hidden, kernel):
-            #     pad = kernel//2
-            #     return lambda ch_in, ch_out: nn.Sequential(
-            #         nn.Conv2d(ch_in, ch_hidden, kernel, padding=pad)
-            #         nn.ReLu(),
-            #         nn.Conv2d(ch_hidden, ch_out, kernel, padding=pad)
-            #     )
+        def subnet(ch_in, ch_out):
+            return nn.Sequential(nn.Linear(ch_in, 512), nn.ReLU(),nn.Linear(512, ch_out))
 
-            # def sub_fc(ch_hidden):
-            #     return lambda ch_in, ch_out: nn.Sequential(
-            #         nn.Conv2d(ch_in, ch_hidden kernel)
-            #         nn.ReLu(),
-            #         nn.Conv2d(ch_hidden, ch_out)
-            #     )
+        cond = Ff.ConditionNode(512, name='condition')
 
+        nodes = [Ff.InputNode(2, 28, 28, name='flat')]
 
+        nodes.append(Ff.Node(nodes[-1], Fm.Flatten, {}, name='flat'))
 
-            # cond = Ff.ConditionNode(576, name='condition')
-            cond = Ff.ConditionNode(512, name='condition')
-            # conditions = [Ff.ConditionNode(28, 28, 28),
-            #               Ff.ConditionNode(56, 14, 14),
-            #               Ff.ConditionNode(112, 7, 7)
-            #               Ff.ConditionNode(512)]
-            # split_nodes = []
+        for k in range(20):
+            nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed':k}, name="permute_{}".format(k)))
+            nodes.append(Ff.Node(nodes[-1], Fm.GLOWCouplingBlock,
+                                {'subnet_constructor':subnet, 'clamp':1.0},
+                                conditions=cond,
+                                name="Coupling_Block_{}".format(k)))
 
-
-
-
-            nodes = [Ff.InputNode(2, 28, 28, name='flat')]
-
-            nodes.append(Ff.Node(nodes[-1], Fm.Flatten, {}, name='flat'))
-
-            for k in range(20):
-                nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed':k}, name="permute_{}".format(k)))
-                nodes.append(Ff.Node(nodes[-1], Fm.GLOWCouplingBlock,
-                                    {'subnet_constructor':subnet, 'clamp':1.0},
-                                    conditions=cond,
-                                    name="Coupling_Block_{}".format(k)))
-
-            return Ff.ReversibleGraphNet(nodes + [cond, Ff.OutputNode(nodes[-1])], verbose=False)
+        return Ff.ReversibleGraphNet(nodes + [cond, Ff.OutputNode(nodes[-1])], verbose=False)
 
     def forward(self, x, c, rev=False):
         c = self.cond_net(c)
