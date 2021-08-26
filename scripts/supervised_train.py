@@ -6,9 +6,10 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
-from imageflow.nets import Reg_mnist_cINN_supervised as CINN
-from imageflow.nets import Reg_mnist_cINN_Unet
+from imageflow.nets import CinnBasic
+from imageflow.nets import CinnConvMultires
 from imageflow.dataset import MnistDataset
+
 
 device = torch.device('cpu')
 batch_size = 64
@@ -35,7 +36,7 @@ test_loader = DataLoader(test_set, batch_size=256)
 print("...done.")
 
 print("Initializing cINN...")
-cinn = Reg_mnist_cINN_Unet()
+cinn = CinnConvMultires()
 cinn.init()
 cinn.to(device)
 cinn.train()

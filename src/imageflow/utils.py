@@ -3,6 +3,8 @@ import numpy as np
 
 from voxelmorph.torch.layers import VecInt, SpatialTransformer
 
+import imageflow as imf
+
 def apply_flow(volume, v_field, device=torch.device('cpu'), integrator=None, transformer=None):
     """This function just applies a flow field to some data, but it is honestly a bit obsulete, especially if one
     defines integrator and transformer outside, which is needed if those are part of a network. It is only useful in a
@@ -36,13 +38,29 @@ def make_models(conf):
         - plain/multiresolution
         -
     """
-    if conf.supervised:
-        if conf.cond_net is not None:
-            from imageflow.nets import CondNet
-            if conf.cond_net == "resnet":
-                from torchvision.models import resnet18
-                ext_model = resnet18(pretrained=conf.pretrained)
-                cond_net = CondNet()
+
+    conf = {
+        "supervised": True,
+        "cond_net": "resnet",
+        "pretrained": True,
+        "cINN": "basic"
+    }
+
+    if conf.get("supervised"):
+        if conf.get("cINN") == "basic":
+            if conf.get("cond_net") is not None:
+                if conf.get("cond_net") == "resnet":
+                    from imageflow.nets import CondNet
+                    from torchvision.models import resnet18
+
+                    ext_model = resnet18(pretrained=conf.get("pretrained"))
+                    cond_net = imf.nets.CondNetWrapper(ext_model, type='resnet')
+                    cinn = imf.nets.CinnBasic(cond_net=cond_net)
+
+        elif conf.get("cINN") == "convolutional":
+            from imageflow.nets import CinnConvMultires
+
+            cond_net = CinnConvMultires()
 
 
     else:  # unsupervised
