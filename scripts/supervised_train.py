@@ -11,7 +11,8 @@ from imageflow.nets import CinnConvMultires
 from imageflow.dataset import MnistDataset
 
 
-device = torch.device('cpu')
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+print(f"Script running with device {device}")
 batch_size = 64
 val_batch_size = 1024
 n_epochs = 60
