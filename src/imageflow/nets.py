@@ -20,8 +20,8 @@ class Reg_mnist_cINN(nn.Module):
                 p.data = 0.01 * torch.randn_like(p)
         self.device = device
 
-        self.integrator = VecInt(inshape=(28, 28), nsteps=7)#.to(device)
-        self.transformer = SpatialTransformer(size=(28, 28))#.to(device)
+        self.integrator = VecInt(inshape=(28, 28), nsteps=7).to(device)
+        self.transformer = SpatialTransformer(size=(28, 28)).to(device)
 
     def build_inn(self):
 

@@ -26,8 +26,8 @@ from imageflow.dataset import MnistDataset
 
 # -- settings ---------------------------------------------------------------------------------------------------------
 
-device = torch.device('cpu')
-batch_size = 256
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
+batch_size = 1024
 val_batch_size = 1024
 test_batch_size = 256
 n_epochs = 10
@@ -54,7 +54,7 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_batch_size, 
 print("...done.")
 
 print("initializing cINN...")
-cinn = Reg_mnist_cINN()
+cinn = Reg_mnist_cINN(device=device)
 cinn.to(device)
 cinn.train()
 print("...done.")
@@ -94,7 +94,7 @@ for e in range(n_epochs):
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term - prior_term - jac_term
+        loss = rec_term - prior_term/ndim_total - jac_term/ndim_total
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -103,7 +103,11 @@ for e in range(n_epochs):
         jac_out = round(jac_term.item(), 2)
         loss_out = round(loss.item(), 2)
 
-        print("{}\t{}\t{} = {} - {} + {}".format(e, i, loss_out, rec_out, prior_out, jac_out))
+        t = torch.cuda.get_device_properties(0).total_memory
+        r = torch.cuda.memory_reserved(0)
+        a = torch.cuda.memory_allocated(0)
+
+        print("{}\t{}\t{} = {} - {} - {} | {} {} {}".format(e, i, loss_out, rec_out, prior_out, jac_out, t, r, a))
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_params, 10.)
