@@ -15,6 +15,7 @@ berechnet. Die erste wichtige frage ist, ob anschließend noch ein nll rückwär
 import os
 import datetime
 import torch
+from torch.utils.data import DataLoader
 # import tensorflow as tf
 # import matplotlib.pyplot as plt
 #
@@ -27,7 +28,7 @@ from imageflow.dataset import MnistDataset
 # -- settings ---------------------------------------------------------------------------------------------------------
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
-batch_size = 1024
+batch_size = 2048
 val_batch_size = 1024
 test_batch_size = 256
 n_epochs = 10
@@ -48,9 +49,9 @@ print("Preparing the data loaders...")
 data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
 train_set, val_set, test_set = torch.utils.data.random_split(data_set, [47712, 4096, 8192],
                                                              generator=torch.Generator().manual_seed(42))
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True)
-val_loader = torch.utils.data.DataLoader(val_set, batch_size=val_batch_size, drop_last=True)
-test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
+train_loader = DataLoader(train_set, batch_size=batch_size, drop_last=True)
+val_loader = DataLoader(val_set, batch_size=val_batch_size, drop_last=True)
+test_loader = DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
 print("initializing cINN...")
@@ -94,7 +95,7 @@ for e in range(n_epochs):
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term - prior_term/ndim_total - jac_term/ndim_total
+        loss = rec_term - prior_term - jac_term
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -106,8 +107,9 @@ for e in range(n_epochs):
         t = torch.cuda.get_device_properties(0).total_memory
         r = torch.cuda.memory_reserved(0)
         a = torch.cuda.memory_allocated(0)
+        f = t - a
 
-        print("{}\t{}\t{} = {} - {} - {} | {} {} {}".format(e, i, loss_out, rec_out, prior_out, jac_out, t, r, a))
+        print("{}\t{}\t{} = {} - {} - {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f))
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_params, 10.)
@@ -129,4 +131,4 @@ checkpoint = {
     "optimizer_state": optimizer.state_dict(),
     "scheduler_state": scheduler.state_dict(),
 }
-torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}.pt'.format(i)))
+torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_final.pt'))
