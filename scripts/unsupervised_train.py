@@ -27,9 +27,10 @@ from imageflow.dataset import MnistDataset
 # -- settings ---------------------------------------------------------------------------------------------------------
 
 device = torch.device('cpu')
-batch_size = 64
+batch_size = 256
 val_batch_size = 1024
-n_epochs = 60
+test_batch_size = 256
+n_epochs = 10
 
 augm_sigma = 0.08
 
@@ -47,9 +48,9 @@ print("Preparing the data loaders...")
 data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
 train_set, val_set, test_set = torch.utils.data.random_split(data_set, [47712, 4096, 8192],
                                                              generator=torch.Generator().manual_seed(42))
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=64)
-val_loader = torch.utils.data.DataLoader(val_set, batch_size=256)
-test_loader = torch.utils.data.DataLoader(test_set, batch_size=256)
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, drop_last=True)
+val_loader = torch.utils.data.DataLoader(val_set, batch_size=val_batch_size, drop_last=True)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
 print("initializing cINN...")
@@ -83,7 +84,7 @@ for e in range(n_epochs):
         z = torch.randn(batch_size, ndim_total).to(device)
         target_pred, v_field_pred, log_jac = cinn.reverse_sample(z, cond)
 
-        rec_term = torch.mean(torch.sum(torch.square(target_pred - target), dim=(1, 2, 3))) / ndim_total
+        rec_term = torch.mean(torch.sum(torch.square(target_pred - target), dim=(1, 2, 3)))
 
         z_prior, prior_jac = cinn(v_field_pred, c=cond)
 
@@ -91,7 +92,7 @@ for e in range(n_epochs):
         prior_jac = torch.mean(prior_jac)
         prior_term = (prior_nll - prior_jac)
 
-        jac_term = torch.mean(log_jac) / ndim_total
+        jac_term = torch.mean(log_jac)
 
         loss = rec_term - prior_term - jac_term
 
@@ -102,7 +103,7 @@ for e in range(n_epochs):
         jac_out = round(jac_term.item(), 2)
         loss_out = round(loss.item(), 2)
 
-        print("{}\t{}\t{}\t{}\t{}\t{}".format(e, i, loss_out, rec_out, prior_out, jac_out))
+        print("{}\t{}\t{} = {} - {} + {}".format(e, i, loss_out, rec_out, prior_out, jac_out))
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(train_params, 10.)
@@ -111,7 +112,7 @@ for e in range(n_epochs):
         scheduler.step()
         optimizer.zero_grad()
 
-        if i % 100 == 0:
+        if i % 20 == 0:
             checkpoint = {
                 "state_dict": cinn.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
@@ -119,3 +120,9 @@ for e in range(n_epochs):
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}.pt'.format(i)))
 
+checkpoint = {
+    "state_dict": cinn.state_dict(),
+    "optimizer_state": optimizer.state_dict(),
+    "scheduler_state": scheduler.state_dict(),
+}
+torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}.pt'.format(i)))
