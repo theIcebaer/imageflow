@@ -8,7 +8,7 @@ from imageflow.utils import apply_flow
 from torch.nn.functional import mse_loss as mse
 
 data_dir = 'data'
-model_dir = 'runs/2021-09-13_14-23/checkpoints/model_180.pt'
+model_dir = 'runs/2021-09-15_20-28/checkpoints/model_final.pt'
 batch_size = 256
 ndim_total = 28 * 28 * 2
 plot = True
@@ -16,7 +16,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 
 print("Loading model...")
 model_dict = torch.load(model_dir)
-state_dict = {k:v for k,v in model_dict['state_dict'].items() if 'tmp_var' not in k}
+state_dict = {k: v for k, v in model_dict['state_dict'].items() if 'tmp_var' not in k}
 cinn = Reg_mnist_cINN()
 cinn.to(device)
 cinn.load_state_dict(state_dict)
@@ -56,6 +56,7 @@ with torch.no_grad():
         reconstruction_err.append(mse(target, target_pred).item())
 
         if plot:
+            # Shift everything to cpu since you can't plot from gpu directly.
             source = source.to(torch.device("cpu"))
             target = target.to(torch.device("cpu"))
             target_pred = target_pred.to(torch.device("cpu"))
