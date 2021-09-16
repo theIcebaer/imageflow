@@ -105,7 +105,7 @@ for e in range(n_epochs):
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term + prior_term + jac_term
+        loss = rec_term + prior_term - jac_term
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -119,7 +119,7 @@ for e in range(n_epochs):
         a = torch.cuda.memory_allocated(0)
         f = t - a
 
-        output = "{}\t{}\t{} = {} + {} + {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f)
+        output = "{}\t{}\t{} = {} + {} - {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f)
         output_log += (output + "\n")
         print(output)
 
