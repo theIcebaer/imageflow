@@ -1,6 +1,8 @@
+import os
 import torch
 import numpy as np
-
+import subprocess
+os.environ['VXM_BACKEND'] = 'pytorch'
 from voxelmorph.torch.layers import VecInt, SpatialTransformer
 
 import imageflow as imf
@@ -66,3 +68,11 @@ def make_models(conf):
     else:  # unsupervised
         pass
 
+
+def get_commit():
+    """Little helper script track code version per run and provide a link to the github view of the respective commit
+    to ease the workflow.
+    """
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode('ascii').strip()
+    link = f"https://github.com/theIcebaer/imageflow/tree/{commit}"
+    return commit, link

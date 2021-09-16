@@ -15,13 +15,15 @@ berechnet. Die erste wichtige frage ist, ob anschließend noch ein nll rückwär
 import os
 import datetime
 import torch
+import yaml
+
 from torch.utils.data import DataLoader
 # import tensorflow as tf
 # import matplotlib.pyplot as plt
 #
 # from voxelmorph.torch.layers import VecInt
 # from voxelmorph.torch.layers import SpatialTransformer
-
+import imageflow.utils
 from imageflow.nets import Reg_mnist_cINN
 from imageflow.dataset import MnistDataset
 
@@ -31,7 +33,7 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cp
 batch_size = 2048
 val_batch_size = 1024
 test_batch_size = 256
-n_epochs = 50
+n_epochs = 1
 learning_rate = 1e-4
 weight_decay = 1e-5
 scheduler_gamma = 0.1
@@ -121,14 +123,10 @@ for e in range(n_epochs):
         output_log += (output + "\n")
         print(output)
 
-
-
-
         optimizer.zero_grad()
         torch.nn.utils.clip_grad_norm_(train_params, 10.)
         loss.backward()
         optimizer.step()
-
 
         if i % 20 == 0:
             checkpoint = {
@@ -145,5 +143,23 @@ checkpoint = {
 }
 torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_final.pt'))
 
-with open(os.path.join(run_dir, 'checkpoints/loss.log'), 'w') as log_file:
+with open(os.path.join(run_dir, 'loss.log'), 'w') as log_file:
     log_file.write(output_log)
+with open(os.path.join(run_dir, 'params.yaml'), 'w') as params_file:
+    commit, link = imageflow.utils.get_commit()
+    device_str = str(device)
+    params_yml = {
+        "device": device_str,
+        "batch_size": batch_size,
+        "val_batch_size": val_batch_size,
+        "test_batch_size": test_batch_size,
+        "n_epochs": n_epochs,
+        "learning_rate": learning_rate,
+        "weight_decay": weight_decay,
+        "scheduler_gamma": scheduler_gamma,
+        "scheduler_milestones": [20, 40],
+        "init_method": init_method,
+        "commit": commit,
+        "git-repo": link
+    }
+    doc = yaml.dump(params_yml, params_file)
