@@ -134,7 +134,7 @@ for e in range(n_epochs):
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
             }
-            torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}.pt'.format(i)))
+            torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
     scheduler.step()
 checkpoint = {
     "state_dict": cinn.state_dict(),
