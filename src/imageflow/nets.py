@@ -11,17 +11,34 @@ from voxelmorph.torch.layers import SpatialTransformer
 
 
 class Reg_mnist_cINN(nn.Module):
-    def __init__(self, device=torch.device("cpu")):
+    def __init__(self, device=torch.device("cpu"), init_method="gaussian", init_params=None):
         super(Reg_mnist_cINN, self).__init__()
         self.flat_layer = torch.nn.Flatten(start_dim=1, end_dim=-1)
         self.cinn = self.build_inn()
-        for p in self.cinn.parameters():
-            if p.requires_grad:
-                p.data = 0.01 * torch.randn_like(p)
+        self.init_weights(method=init_method)
+
         self.device = device
 
         self.integrator = VecInt(inshape=(28, 28), nsteps=7).to(device)
         self.transformer = SpatialTransformer(size=(28, 28)).to(device)
+
+    def init_weights(self, method="gaussian", init_args=None):
+        if method == "gaussian":
+            for p in self.cinn.parameters():
+                if p.requires_grad:
+                    if init_args is None:
+                        p.data = 0.01 * torch.randn_like(p)
+                    else:
+                        p.data = init_args['lr'] * torch.randn_like(p)
+
+        elif method == "xavier":
+            for p in self.cinn.parameters():
+                if p.requires_grad:
+                    if init_args is None:
+                        torch.nn.init.xavier_uniform_(p, gain=1.0)
+                    else:
+                        torch.nn.init.xavier_uniform_(p, gain=init_args['gain'])
+
 
     def build_inn(self):
 

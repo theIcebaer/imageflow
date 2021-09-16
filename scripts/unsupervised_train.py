@@ -31,7 +31,13 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cp
 batch_size = 2048
 val_batch_size = 1024
 test_batch_size = 256
-n_epochs = 10
+n_epochs = 50
+learning_rate = 1e-4
+weight_decay = 1e-5
+scheduler_gamma = 0.1
+scheduler_milestones = [20, 40]
+init_method = 'gaussian'
+
 
 augm_sigma = 0.08
 
@@ -55,20 +61,22 @@ test_loader = DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
 print("initializing cINN...")
-cinn = Reg_mnist_cINN(device=device)
+cinn = Reg_mnist_cINN(device=device, init_method=init_method)
 cinn.to(device)
 cinn.train()
 print("...done.")
 
 train_params = [p for p in cinn.parameters() if p.requires_grad]
-optimizer = torch.optim.Adam(train_params, lr=1e-4, weight_decay=1e-5)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 40], gamma=0.1)
+optimizer = torch.optim.Adam(train_params, lr=learning_rate, weight_decay=weight_decay)
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_milestones, gamma=scheduler_gamma)
 
 
 print("preparing run directory...")
 os.mkdir(run_dir)
 os.mkdir(os.path.join(run_dir, "checkpoints/"))
 print("...done")
+
+output_log = ""
 
 print("epoch \t batch \t total_loss \t rec_loss \t prior_loss \t jac_loss")
 for e in range(n_epochs):
@@ -91,11 +99,11 @@ for e in range(n_epochs):
 
         prior_nll = torch.mean(torch.sum(z_prior**2, dim=1) / 2)
         prior_jac = torch.mean(prior_jac)
-        prior_term = (prior_nll - prior_jac)
+        prior_term = (prior_nll/ndim_total - prior_jac)
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term - prior_term - jac_term
+        loss = rec_term + prior_term - jac_term
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -109,14 +117,18 @@ for e in range(n_epochs):
         a = torch.cuda.memory_allocated(0)
         f = t - a
 
-        print("{}\t{}\t{} = {} - {} - {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f))
-        
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(train_params, 10.)
+        output = "{}\t{}\t{} = {} + {} - {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f)
+        output_log += (output + "\n")
+        print(output)
 
-        optimizer.step()
-        scheduler.step()
+
+
+
         optimizer.zero_grad()
+        torch.nn.utils.clip_grad_norm_(train_params, 10.)
+        loss.backward()
+        optimizer.step()
+
 
         if i % 20 == 0:
             checkpoint = {
@@ -125,10 +137,13 @@ for e in range(n_epochs):
                 "scheduler_state": scheduler.state_dict(),
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}.pt'.format(i)))
-
+    scheduler.step()
 checkpoint = {
     "state_dict": cinn.state_dict(),
     "optimizer_state": optimizer.state_dict(),
     "scheduler_state": scheduler.state_dict(),
 }
 torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_final.pt'))
+
+with open(os.path.join(run_dir, 'checkpoints/loss.log'), 'w') as log_file:
+    log_file.write(output_log)
