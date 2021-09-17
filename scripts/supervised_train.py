@@ -12,7 +12,7 @@ from imageflow.dataset import MnistDataset
 
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-print(f"Script running with device {device}")
+print(f"Script running with device {device}.")
 batch_size = 64
 val_batch_size = 1024
 n_epochs = 60
@@ -97,3 +97,20 @@ for e in range(n_epochs):
                 loss_log['epoch'].append(e)
                 loss_log["batch"].append(i)
                 print("{}\t{}\t{}\t{}\t{}".format(e, i, alt_nll.item(), nll.item(), v_nll.item()))
+
+                if i % 20 == 0:
+                    checkpoint = {
+                        "state_dict": cinn.state_dict(),
+                        "optimizer_state": optimizer.state_dict(),
+                        "scheduler_state": scheduler.state_dict(),
+                    }
+                    torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
+
+    scheduler.step()
+
+checkpoint = {
+    "state_dict": cinn.state_dict(),
+    "optimizer_state": optimizer.state_dict(),
+    "scheduler_state": scheduler.state_dict(),
+}
+torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_final.pt'))
