@@ -1,0 +1,28 @@
+import pytest
+
+# This file should organize all necessary testcases. First we have to list everything.
+# Unittesting Basic components:
+# - Cond net wrapper does always give back correct condition network with stuff
+#       - mobilenet
+#       - resnet
+# - initialization strategy does work as intended for all networks where it is used.
+#       - xavier
+#       - gaussian
+#       - CinnBasic
+#       - CinnMultiresolution
+
+# "Integration Testing" for different experiment setups.
+# - supervised training with:
+#   - no conditioning network
+#   - conditioning network with training from scratch
+#   - conditioning network with pretrained resnet
+#   - " mobilenet
+#   -
+
+
+@pytest.mark.parametrize("model_name, trained", [("mobilenet_v3_large", True)])
+def test_component_cond_net_wrapper(model_name, trained):
+    from imageflow.nets import CondNetWrapper
+    from torchvision.models import mobilenet_v3_large
+    model = eval(model_name + f"(pretrained={trained})")
+    wrapped_mobilenet = CondNetWrapper(cond_net=model, net_type=model_name)

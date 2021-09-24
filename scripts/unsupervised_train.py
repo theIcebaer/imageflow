@@ -18,26 +18,29 @@ import torch
 import yaml
 
 from torch.utils.data import DataLoader
-# import tensorflow as tf
-# import matplotlib.pyplot as plt
-#
-# from voxelmorph.torch.layers import VecInt
-# from voxelmorph.torch.layers import SpatialTransformer
 import imageflow.utils
+from imageflow.nets import CinnBasic
 from imageflow.nets import Reg_mnist_cINN
 from imageflow.dataset import MnistDataset
 
 # -- settings ---------------------------------------------------------------------------------------------------------
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
-batch_size = 2048
+print(f"Script running with device {device}.")
+batch_size = 1024
 val_batch_size = 1024
 test_batch_size = 256
 n_epochs = 50
 learning_rate = 1e-4
 weight_decay = 1e-5
-scheduler_gamma = 0.1
-scheduler_milestones = [20, 40]
+# scheduler_config = {  # multistep scheduler config
+#     "scheduler_gamma": 0.1,
+#     "scheduler_milestones": [20, 40]
+# }
+scheduler_config = {  # cosine annealing scheduler config
+    "T_max": 5,
+}
+
 init_method = 'gaussian'
 
 
@@ -63,15 +66,15 @@ test_loader = DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
 print("initializing cINN...")
-cinn = Reg_mnist_cINN(device=device, init_method=init_method)
+cinn = CinnBasic(device=device, init_method=init_method)
 cinn.to(device)
 cinn.train()
 print("...done.")
 
 train_params = [p for p in cinn.parameters() if p.requires_grad]
 optimizer = torch.optim.Adam(train_params, lr=learning_rate, weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_milestones, gamma=scheduler_gamma)
-
+# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_milestones, gamma=scheduler_gamma)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, scheduler_config['T_max'])
 
 print("preparing run directory...")
 os.mkdir(run_dir)
@@ -135,7 +138,9 @@ for e in range(n_epochs):
                 "scheduler_state": scheduler.state_dict(),
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
+
     scheduler.step()
+
 checkpoint = {
     "state_dict": cinn.state_dict(),
     "optimizer_state": optimizer.state_dict(),
@@ -156,8 +161,7 @@ with open(os.path.join(run_dir, 'params.yaml'), 'w') as params_file:
         "n_epochs": n_epochs,
         "learning_rate": learning_rate,
         "weight_decay": weight_decay,
-        "scheduler_gamma": scheduler_gamma,
-        "scheduler_milestones": [20, 40],
+        "scheduler_config": scheduler_config,
         "init_method": init_method,
         "commit": commit,
         "git-repo": link

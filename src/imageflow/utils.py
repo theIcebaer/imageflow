@@ -76,3 +76,28 @@ def get_commit():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode('ascii').strip()
     link = f"https://github.com/theIcebaer/imageflow/tree/{commit}"
     return commit, link
+
+
+# def get_cond_shape(cond_net, data_shape):
+#     """Helper function to infer output shape of a conditioning network from the network type. Not very elegant, but
+#     better than hardcoding it inside of the class definition.
+#     """
+#
+#     if type(cond_net) ==
+#
+#     def init_weights(self, method="gaussian", init_args=None):
+#         if method == "gaussian":
+#             for p in self.cinn.parameters():
+#                 if p.requires_grad:
+#                     if init_args is None:
+#                         p.data = 0.01 * torch.randn_like(p)
+#                     else:
+#                         p.data = init_args['lr'] * torch.randn_like(p)
+#
+#         elif method == "xavier":
+#             for p in self.cinn.parameters():
+#                 if p.requires_grad:
+#                     if init_args is None:
+#                         torch.nn.init.xavier_uniform_(p, gain=1.0)
+#                     else:
+#                         torch.nn.init.xavier_uniform_(p, gain=init_args['gain'])

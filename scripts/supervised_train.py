@@ -1,19 +1,21 @@
 import os
 import datetime
 import torch
+import numpy as np
 
 from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
 
 from imageflow.nets import CinnBasic
-from imageflow.nets import CinnConvMultires
+from imageflow.nets import CinnConvMultiRes
 from imageflow.dataset import MnistDataset
-
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 print(f"Script running with device {device}.")
-batch_size = 64
+batch_size = 1024
 val_batch_size = 1024
 n_epochs = 60
 
@@ -37,16 +39,30 @@ test_loader = DataLoader(test_set, batch_size=256)
 print("...done.")
 
 print("Initializing cINN...")
-cinn = CinnConvMultires()
-cinn.init()
+cinn = CinnBasic(init_method="xavier")
 cinn.to(device)
 cinn.train()
 print("...done")
 
-
+print("trying to plot weights")
 train_params = [p for p in cinn.parameters() if p.requires_grad]
-optimizer = torch.optim.Adam(train_params, lr=5e-4,weight_decay=1e-5)
+# for p in train_params:
+#     # torch.randn_like(p).cpu().detach().numpy().flatten() #
+#     # dat = torch.randn((1000000))
+#     # dat = np.random.randn(1000000, )
+#     dat = p.data.cpu()
+#     # torch.nn.init.normal_(dat, std=0.1)
+#     sns.histplot(dat.detach().numpy().flatten())
+#     plt.show()
+#     print(dat)
+#     break
+# print("done")
+# exit()
+
+optimizer = torch.optim.Adam(train_params, lr=5e-4, weight_decay=1e-5)
 scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 40], gamma=0.1)
+torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=5)
+
 
 loss_log = {"nll": [],
             "val_nll": [],
@@ -98,14 +114,13 @@ for e in range(n_epochs):
                 loss_log["batch"].append(i)
                 print("{}\t{}\t{}\t{}\t{}".format(e, i, alt_nll.item(), nll.item(), v_nll.item()))
 
-                if i % 20 == 0:
-                    checkpoint = {
-                        "state_dict": cinn.state_dict(),
-                        "optimizer_state": optimizer.state_dict(),
-                        "scheduler_state": scheduler.state_dict(),
-                    }
-                    torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
-
+        if i == 0:
+            checkpoint = {
+                "state_dict": cinn.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "scheduler_state": scheduler.state_dict(),
+            }
+            torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
     scheduler.step()
 
 checkpoint = {

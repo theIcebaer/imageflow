@@ -3,12 +3,13 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from imageflow.nets import Reg_mnist_cINN
+from imageflow.nets import CinnBasic
 from imageflow.dataset import MnistDataset
 from imageflow.utils import apply_flow
 from torch.nn.functional import mse_loss as mse
 
 data_dir = 'data'
-model_dir = 'runs/2021-09-15_20-28/checkpoints/model_final.pt'
+model_dir = 'runs/2021-09-24_10-18/checkpoints/model_final.pt'
 batch_size = 256
 ndim_total = 28 * 28 * 2
 plot = True
@@ -17,7 +18,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 print("Loading model...")
 model_dict = torch.load(model_dir)
 state_dict = {k: v for k, v in model_dict['state_dict'].items() if 'tmp_var' not in k}
-cinn = Reg_mnist_cINN()
+cinn = CinnBasic(device=device)
 cinn.to(device)
 cinn.load_state_dict(state_dict)
 print("...done")

@@ -11,11 +11,11 @@ from voxelmorph.torch.layers import SpatialTransformer
 
 
 class Reg_mnist_cINN(nn.Module):
-    def __init__(self, device=torch.device("cpu"), init_method="gaussian", init_params=None):
+    def __init__(self, device, init_method="gaussian", init_params=None):
         super(Reg_mnist_cINN, self).__init__()
         self.flat_layer = torch.nn.Flatten(start_dim=1, end_dim=-1)
         self.cinn = self.build_inn()
-        self.init_weights(method=init_method)
+        self.init_weights(method=init_method, init_args=init_params)
 
         self.device = device
 
@@ -39,27 +39,25 @@ class Reg_mnist_cINN(nn.Module):
                     else:
                         torch.nn.init.xavier_uniform_(p, gain=init_args['gain'])
 
-
     def build_inn(self):
+        def subnet(ch_in, ch_out):
+            return nn.Sequential(nn.Linear(ch_in, 512),
+                                 nn.ReLU(),
+                                 nn.Linear(512, ch_out))
 
-            def subnet(ch_in, ch_out):
-                return nn.Sequential(nn.Linear(ch_in, 512),
-                                    nn.ReLU(),
-                                    nn.Linear(512, ch_out))
+        cond = Ff.ConditionNode(2 * 28 * 28, name='condition')
+        nodes = [Ff.InputNode(2, 28, 28, name='flat')]
+        nodes.append(Ff.Node(nodes[-1], Fm.Flatten, {}, name='flat'))
 
-            cond = Ff.ConditionNode(2 * 28 * 28, name='condition')
-            nodes = [Ff.InputNode(2, 28, 28, name='flat')]
+        for k in range(5):
+            nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed':k}, name="permute_{}".format(k)))
+            nodes.append(Ff.Node(nodes[-1],
+                                 Fm.GLOWCouplingBlock,
+                                 {'subnet_constructor': subnet, 'clamp': 1.0},
+                                 conditions=cond,
+                                 name="Coupling_Block_{}".format(k)))
 
-            nodes.append(Ff.Node(nodes[-1], Fm.Flatten, {}, name='flat'))
-
-            for k in range(5):
-                nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed':k}, name="permute_{}".format(k)))
-                nodes.append(Ff.Node(nodes[-1], Fm.GLOWCouplingBlock,
-                                    {'subnet_constructor':subnet, 'clamp':1.0},
-                                    conditions=cond,
-                                    name="Coupling_Block_{}".format(k)))
-
-            return Ff.ReversibleGraphNet(nodes + [cond, Ff.OutputNode(nodes[-1])], verbose=False)
+        return Ff.ReversibleGraphNet(nodes + [cond, Ff.OutputNode(nodes[-1])], verbose=False)
 
     def forward(self, x, c, rev=False):
         z = self.cinn(x, [self.flat_layer(c)], rev=rev)
@@ -79,7 +77,7 @@ class Reg_mnist_cINN(nn.Module):
         return target_pred, v_field, logj_rev
 
 
-class MultiresCondNet(nn.Module):
+class MultiResCondNet(nn.Module):
 
     def __init__(self):
         super().__init__()
@@ -87,45 +85,33 @@ class MultiresCondNet(nn.Module):
         class Flatten(nn.Module):
             def __init__(self, *args):
                 super().__init__()
+
             def forward(self, x):
                 return x.view(x.shape[0], -1)
 
-        # self.Flatten = Flatten()
-        # self.Linear = nn.Linear(512,512)
-
         self.resolution_levels = nn.ModuleList([
-                                                nn.Sequential(nn.Conv2d(2, 64, 3, padding=1), nn.LeakyReLU(), nn.Conv2d(64, 64, 3, padding=1)),
-                                                nn.Sequential(nn.LeakyReLU(), nn.Conv2d(64, 128, 3, padding=1), nn.LeakyReLU(), nn.Conv2d(128,128,3, padding=1, stride=2)),
-                                                nn.Sequential(nn.LeakyReLU(),nn.Conv2d(128, 128, 3, padding=1, stride=2)),
-                                                nn.Sequential(nn.LeakyReLU(), nn.AvgPool2d(3), Flatten(), nn.Linear(512, 512))
-                                                ])
+            nn.Sequential(nn.Conv2d(2, 64, 3, padding=1), nn.LeakyReLU(), nn.Conv2d(64, 64, 3, padding=1)),
+            nn.Sequential(nn.LeakyReLU(), nn.Conv2d(64, 128, 3, padding=1), nn.LeakyReLU(),
+                          nn.Conv2d(128, 128, 3, padding=1, stride=2)),
+            nn.Sequential(nn.LeakyReLU(), nn.Conv2d(128, 128, 3, padding=1, stride=2)),
+            nn.Sequential(nn.LeakyReLU(), nn.AvgPool2d(3), Flatten(), nn.Linear(512, 512))
+            ])
 
     def forward(self, c):
         outputs = [c]
-        # print(c.shape)
         for i, m in enumerate(self.resolution_levels):
-            # print(i)
-            # print(m.shape)
             outputs.append(m(outputs[-1]))
-        #     print(outputs[-1].shape)
-        # outputs[-1] = nn.LeakyReLU()(outputs[-1])
-        # print(outputs[-1].shape)
-        # outputs[-1] = nn.AvgPool2d(3)(outputs[-1])
-        # print(outputs[-1].shape)
-        # outputs[-1] = self.Flatten(outputs[-1])
-        # print(outputs[-1].shape)
-        # outputs[-1] =  self.Linear(outputs[-1])
         return outputs[1:]
 
 
-class CinnConvMultires(nn.Module):
+class CinnConvMultiRes(nn.Module):
     """
     Structure from ardizzone et al. on conditional INNs TODO:ref
     """
     def __init__(self):
-        super(CinnConvMultires, self).__init__()
+        super(CinnConvMultiRes, self).__init__()
         self.cinn = self.build_inn()
-        self.cond_net = MultiresCondNet()
+        self.cond_net = MultiResCondNet()
 
     def build_inn(self):
 
@@ -219,59 +205,126 @@ class CinnConvMultires(nn.Module):
 
 
 class CinnBasic(nn.Module):
-    """
-    Class for supervised regis
-    """
-    def __init__(self, cond_net):
+    def __init__(self, device=None, cond_net=None, init_method="gaussian", init_params=None):
         super(CinnBasic, self).__init__()
-        self.flat_layer = torch.nn.Flatten(start_dim=1, end_dim=-1)
-        self.cinn = self.build_inn()
-        self.cond_net = cond_net
 
-    def build_inn(self):
+        if device is None:
+            device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self.device = device
+
+        if cond_net is None:
+            out_shape = (2*28*28,)
+        else:
+            out_shape = cond_net.out_shape
+
+        self.flat_layer = torch.nn.Flatten(start_dim=1, end_dim=-1)
+        self.cinn = self.build_inn(out_shape)
+        self.cinn.to(self.device)
+
+        # Note: Init cinn weights before integration of conditioning net to avoid rewriting cond weights.
+        self.init_weights(method=init_method)
+
+        self.cond_net = cond_net
+        if self.cond_net is not None:
+            self.cond_net = cond_net.to(device)
+
+        self.integrator = VecInt(inshape=(28, 28), nsteps=7).to(self.device)
+        self.transformer = SpatialTransformer(size=(28, 28)).to(self.device)
+
+    def init_weights(self, method="gaussian"):
+        """ This function does control the behaviour of the default weight initialization, by a set of keywords,
+        currently being:
+            - "gaussian" - for gaussian weight init
+            - "xavier" - for weight init with the xavier-normal strategy
+            - "uniform" - for uniform weights with the default pytorch mechanism. This is just default behaviour its
+                          just an explicit tag for "stick to the default".
+                          NOTE: Don't use this, for some reason this leads to incredibly big starting values for the
+
+        """
+
+        if method == "gaussian":
+            def _init_gaussian(m):
+                if isinstance(m, nn.Linear):
+                    # torch.nn.init.normal_(m.weight, mean=0, std=1)
+                    torch.nn.init.normal_(m.weight)
+                    torch.nn.init.normal_(m.bias)
+
+            self.apply(_init_gaussian)
+
+            # for p in self.cinn.parameters():
+            #     if p.requires_grad:
+            #        p.data = 0.01 * torch.randn_like(p)
+
+        elif method == "xavier":
+            def _init_xavier(m):
+                if isinstance(m, nn.Linear):
+                    torch.nn.init.xavier_normal_(m.weight.data, gain=0.1)
+                    torch.nn.init.constant_(m.bias.data, 0.0)
+            self.apply(_init_xavier)
+
+        elif method == "uniform":
+            pass
+            # layers ar initialized by default from a uniform distribution, see:
+            # https://pytorch.org/docs/stable/generated/torch.nn.Linear.html#torch.nn.Linear
+
+    def build_inn(self, cond_shape):
 
         def subnet(ch_in, ch_out):
-            return nn.Sequential(nn.Linear(ch_in, 512), nn.ReLU(),nn.Linear(512, ch_out))
+            return nn.Sequential(nn.Linear(ch_in, 512),
+                                 nn.ReLU(),
+                                 nn.Linear(512, ch_out))
 
-        cond = Ff.ConditionNode(512, name='condition')
-
+        cond = Ff.ConditionNode(*cond_shape, name='condition')
         nodes = [Ff.InputNode(2, 28, 28, name='flat')]
-
         nodes.append(Ff.Node(nodes[-1], Fm.Flatten, {}, name='flat'))
 
         for k in range(20):
-            nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed':k}, name="permute_{}".format(k)))
-            nodes.append(Ff.Node(nodes[-1], Fm.GLOWCouplingBlock,
-                                {'subnet_constructor':subnet, 'clamp':1.0},
-                                conditions=cond,
-                                name="Coupling_Block_{}".format(k)))
+            nodes.append(Ff.Node(nodes[-1], Fm.PermuteRandom , {'seed': k}, name="permute_{}".format(k)))
+            nodes.append(Ff.Node(nodes[-1],
+                                 Fm.GLOWCouplingBlock,
+                                 {'subnet_constructor': subnet, 'clamp': 1.0},
+                                 conditions=cond,
+                                 name="Coupling_Block_{}".format(k)))
 
         return Ff.ReversibleGraphNet(nodes + [cond, Ff.OutputNode(nodes[-1])], verbose=False)
 
+    def reverse_sample(self, z, cond):
+        if self.cond_net:
+            cond = self.cond_net(cond)
+        v_field = self.cinn(z, c=[self.flat_layer(cond)], rev=True)
+        logj_rev = self.cinn.log_jacobian(run_forward=False)
+        source = cond[:, :1, ...].to(self.device)
+        target = cond[:, 1:, ...].to(self.device)
+
+        deformation = self.integrator(v_field)
+        target_pred = self.transformer(source, deformation)
+
+        return target_pred, v_field, logj_rev
+
     def forward(self, x, c, rev=False):
-        c = self.cond_net(c)
+        if self.cond_net:
+            c = self.cond_net(c)
         z = self.cinn(x, [self.flat_layer(c)], rev=rev)
         log_j = self.cinn.log_jacobian(run_forward=False)
         return z, log_j
 
-    def reverse_sample(self, z, c):
-        # x = self.cinn((x, [self.flat_layer(c)], rev=True))
-        # return x
-        pass
-    def init(self):
-        for p in self.cinn.parameters():
-            if p.requires_grad:
-                p.data = 0.01 * torch.randn_like(p)
-
 
 class CondNetWrapper(nn.Module):
-    def __init__(self, cond_net, type=None):
+    def __init__(self, cond_net, net_type=None):
         super().__init__()
-        self.upscale = nn.Conv2d(2, 3, 3, padding=1)  # upscale the 2d-like image to a 3d input for the predefined network
-        if type == "resnet":
+        # upscale the 2 channel image to a 3 channel input for the predefined network
+        self.upscale = nn.Conv2d(2, 3, 3, padding=1)
+        if net_type == "resnet":
             self.features = nn.Sequential(*list(cond_net.children())[:-2])
-        elif type == "mobilenet":
+            # TODO: make differentiation depending on data shape here for future data formats.
+            self.out_shape = (512,)
+        elif net_type == "mobilenet":
             self.features = cond_net.features
+            # TODO: make differentiation depending on data shape here for future data formats.
+            self.out_shape = (960,)
+
+    # def out_shape(self):
+    #     return self.out_shape
 
     def forward(self, x):
         x = self.upscale(x)
