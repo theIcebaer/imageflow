@@ -10,6 +10,7 @@ from torch.utils.data import random_split
 from imageflow.nets import CinnBasic
 from imageflow.nets import CinnConvMultiRes
 from imageflow.nets import Reg_mnist_cINN
+from imageflow.nets import CouplingFlow
 from imageflow.dataset import MnistDataset
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -18,12 +19,12 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 print(f"Script running with device {device}.")
 batch_size = 1024
 val_batch_size = 1024
-n_epochs = 60
-milestones = [20, 40]
+n_epochs = 30
+
+augm_sigma = 0.08
 
 image_shape = (28, 28)
-field_shape = (2, 28, 28)
-ndim_total = 28*28*2
+ndim_total = 28*28*1
 plot = True
 base_dir = "../"
 run_dir = os.path.join(base_dir, "runs", datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
@@ -31,35 +32,44 @@ data_dir = os.path.join(base_dir, "data")
 
 
 print("Preparing the data loaders...")
-data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"), noise=0.08) # also try 0.005
+data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
 train_set, val_set, test_set = random_split(data_set, [47712, 4096, 8192], generator=torch.Generator().manual_seed(42))
 train_loader = DataLoader(train_set, batch_size=64)
 val_loader = DataLoader(val_set, batch_size=256)
 test_loader = DataLoader(test_set, batch_size=256)
 print("...done.")
 
-
 print("Initializing cINN...")
-cinn = CinnBasic(init_method="xavier")
-# cinn = Reg_mnist_cINN(device=device)
+# cinn = CinnBasic(init_method="gaussian")
+cinn = CouplingFlow(device=device)
 cinn.to(device)
 cinn.train()
 print("...done")
 
 print("trying to plot weights")
 train_params = [p for p in cinn.parameters() if p.requires_grad]
+# for p in train_params:
+#     # torch.randn_like(p).cpu().detach().numpy().flatten() #
+#     # dat = torch.randn((1000000))
+#     # dat = np.random.randn(1000000, )
+#     dat = p.data.cpu()
+#     # torch.nn.init.normal_(dat, std=0.1)
+#     sns.histplot(dat.detach().numpy().flatten())
+#     plt.show()
+#     print(dat)
+#     break
+# print("done")
+# exit()
 
-optimizer = torch.optim.Adam(train_params, lr=5e-4, weight_decay=1e-5)
-# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=5)
-# scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+optimizer = torch.optim.Adam(train_params, lr=8e-4, weight_decay=1e-5)
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 40], gamma=0.1)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20)
 
 
 loss_log = {"nll": [],
             "val_nll": [],
             "epoch": [],
-            "batch": [],
-            "lr": []}
+            "batch": []}
 
 print("preparing run directory...")
 os.mkdir(run_dir)
@@ -72,13 +82,17 @@ print("epoch \t batch \t nll \t aggregated nll \t validation nll")
 for e in range(n_epochs):
     agg_nll = []
     for i, (im, cond) in enumerate(train_loader):
-        optimizer.zero_grad()
 
+        # plt.imshow(im)
+        # plt.show()
 
-        im = im.to(device)
-        cond = cond.to(device)
+        source = cond[:, 0, :, :].to(device)
+        target = cond[:, 1, :, :].to(device)
 
-        out, log_j = cinn(im, c=cond)
+        # im = im.to(device)
+        # cond = cond.to(device)
+
+        out, log_j = cinn(target, c=source)
 
         alt_nll = torch.mean(out ** 2 / 2) - torch.mean(log_j) / ndim_total
 
@@ -92,32 +106,31 @@ for e in range(n_epochs):
         torch.nn.utils.clip_grad_norm_(train_params, 100.)
 
         optimizer.step()
-        # scheduler.step()
+        optimizer.zero_grad()
+        scheduler.step()
 
         if i % 20 == 0:
             with torch.no_grad():
                 val_x, val_c = next(iter(val_loader))
-                val_x, val_c = val_x.to(device), val_c.to(device)
+                val_s = val_c[:, 0, :, :].to(device)
+                val_t = val_c[:, 1, :, :].to(device)
+                # val_x, val_c = val_x.to(device), val_c.to(device)
 
-                v_out, v_log_j = cinn(val_x, c=val_c)
+                v_out, v_log_j = cinn(val_t, c=val_s)
                 v_nll = torch.mean(v_out ** 2) / 2 - torch.mean(v_log_j) / ndim_total
                 loss_log['nll'].append(alt_nll.item())
                 loss_log['val_nll'].append(v_nll.item())
                 loss_log['epoch'].append(e)
                 loss_log["batch"].append(i)
-                loss_log['lr'].append(scheduler.get_last_lr())
-                print("{}\t{}\t{}\t{}\t{}\t{}".format(e, i, alt_nll.item(), nll.item(), v_nll.item(),
-                                                      scheduler.get_last_lr()))
+                print("{}\t{}\t{}\t{}\t{}".format(e, i, alt_nll.item(), nll.item(), v_nll.item()))
 
-        if i == 0 and e % 10 == 0:
+        if i == 0:
             checkpoint = {
                 "state_dict": cinn.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
-            with open(os.path.join(run_dir, 'loss.log'), 'w') as log_file:
-                log_file.write(loss_log)
     scheduler.step()
 
 checkpoint = {
@@ -125,6 +138,4 @@ checkpoint = {
     "optimizer_state": optimizer.state_dict(),
     "scheduler_state": scheduler.state_dict(),
 }
-with open(os.path.join(run_dir, 'loss.log'), 'w') as log_file:
-    log_file.write(loss_log)
-torch.save(loss_log, os.path.join(run_dir, 'checkpoints/loss_log.pt'))
+torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_final.pt'))

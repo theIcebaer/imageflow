@@ -4,12 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from imageflow.nets import Reg_mnist_cINN
 from imageflow.nets import CinnBasic
+from imageflow.nets import CinnConvMultiRes
 from imageflow.dataset import MnistDataset
 from imageflow.utils import apply_flow
 from torch.nn.functional import mse_loss as mse
 
 data_dir = 'data'
-model_dir = 'runs/2021-09-24_10-18/checkpoints/model_final.pt'
+model_dir = '/home/jens/thesis/imageflow/runs/2022-02-02_21-18/checkpoints/model_final.pt'
 batch_size = 256
 ndim_total = 28 * 28 * 2
 plot = True
@@ -18,7 +19,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 print("Loading model...")
 model_dict = torch.load(model_dir)
 state_dict = {k: v for k, v in model_dict['state_dict'].items() if 'tmp_var' not in k}
-cinn = CinnBasic(device=device)
+cinn = CinnConvMultiRes(device=device)
 cinn.to(device)
 cinn.load_state_dict(state_dict)
 print("...done")
@@ -36,7 +37,7 @@ with torch.no_grad():
     field_err = []
     reconstruction_err = []
 
-    for v_field, c in test_loader:
+    for i, (v_field, c) in enumerate(test_loader):
 
         v_field = v_field.to(device)
         # print(v_field.shape)
@@ -84,6 +85,8 @@ with torch.no_grad():
             ax3.imshow(target[idx, 0, :, :])
             ax3.set_xlabel("mse: {}".format(round(reconstruction_err[-1], 2)))
 
+            plt.savefig(f"plots/unsupervised/prediction_{i}.pdf")
+
             fig2 = plt.figure()
 
             ax4 = fig2.add_subplot(1, 2, 1)
@@ -98,10 +101,12 @@ with torch.no_grad():
             ax5.set_title("true velocity field")
             # ax5.imshow(v_field[idx, 0, :, :])
             u, v = v_field[idx, 0], v_field[idx, 1]
-            print(u.shape)
+            # print(u.shape)
             x, y = np.meshgrid(np.linspace(-13, 14, 28), np.linspace(-13, 14, 28))
             plt.axis("equal")
             plt.streamplot(x, y, u, v)
             ax5.set_xlabel("mse: {}".format(round(field_err[-1], 2)))
+
+            plt.savefig(f"plots/unsupervised/field_{i}.pdf")
 
             plt.show()

@@ -14,25 +14,29 @@ berechnet. Die erste wichtige frage ist, ob anschließend noch ein nll rückwär
 
 import os
 import datetime
-import time
 
+import matplotlib.pyplot as plt
 import torch
+import torchvision.datasets
 import yaml
+import torchvision
+import torchvision.transforms as T
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
+
 import imageflow.utils
-from imageflow.nets import CinnBasic
+from imageflow.nets import CinnConvMultiRes
 from imageflow.nets import Reg_mnist_cINN
 from imageflow.dataset import MnistDataset
-
+from imageflow.dataset import MnistSingleNumber
 # -- settings ---------------------------------------------------------------------------------------------------------
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
 print(f"Script running with device {device}.")
-batch_size = 64
+batch_size = 256
 val_batch_size = 1024
 test_batch_size = 256
-n_epochs = 50
+n_epochs = 120
 learning_rate = 1e-4
 weight_decay = 1e-5
 scheduler_config = {  # multistep scheduler config
@@ -52,31 +56,42 @@ image_shape = (28, 28)
 field_shape = (2, 28, 28)
 ndim_total = 28*28*2
 plot = True
-base_dir = "../"
+base_dir = "../../"
 run_dir = os.path.join(base_dir, "runs", datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
 data_dir = os.path.join(base_dir, "data")
 
 # ---------------------------------------------------------------------------------------------------------------------
 
 print("Preparing the data loaders...")
-data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
-train_set, val_set, test_set = torch.utils.data.random_split(data_set, [47712, 4096, 8192],
+# data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
+data_mean = 0.128
+data_std = 0.305
+data_set = torchvision.datasets.MNIST(data_dir, train=True, download=True)
+fives_data = data_set.data[data_set.targets == 5]
+fives_targets = torch.ones(fives_data.shape[0]) * 5
+
+data_set = MnistSingleNumber(fives_data, fives_targets,
+                             transform=lambda x: (x - data_mean) / data_std)
+
+
+train_set, val_set, test_set = torch.utils.data.random_split(data_set, [4000, 421, 1000],
                                                              generator=torch.Generator().manual_seed(42))
 train_loader = DataLoader(train_set, batch_size=batch_size, drop_last=True)
-val_loader = DataLoader(val_set, batch_size=val_batch_size, drop_last=True, shuffle=False)
+val_loader = DataLoader(val_set, batch_size=val_batch_size, drop_last=True)
 test_loader = DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
 print("initializing cINN...")
-cinn = CinnBasic(device=device, init_method=init_method)
+cinn = CinnConvMultiRes(device=device, init_method=init_method)
 cinn.to(device)
 cinn.train()
 print("...done.")
 
 train_params = [p for p in cinn.parameters() if p.requires_grad]
 optimizer = torch.optim.Adam(train_params, lr=learning_rate, weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_config['scheduler_milestones'],
-                                                 gamma=scheduler_config['scheduler_gamma'])
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                 milestones=scheduler_config["scheduler_milestones"],
+                                                 gamma=scheduler_config["scheduler_gamma"])
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, scheduler_config['T_max'])
 
 print("preparing run directory...")
@@ -90,23 +105,28 @@ print("epoch \t batch \t total_loss \t rec_loss \t prior_loss \t jac_loss")
 for e in range(n_epochs):
     agg_nll = []
     # if e > 0: break
-    for i, (v_field, cond) in enumerate(train_loader):
+    for i, cond in enumerate(train_loader):
         # if i : break
         # print(i, "--------------------------------------------" )
-
+        #
         cond = cond.to(device)
         source = cond[:, :1, ...].to(device)
         target = cond[:, 1:, ...].to(device)
 
+        # from imageflow.utils import plot_mf
+        # plot_mf(cond.cpu().detach().numpy())
+
+        import matplotlib.pyplot as plt
+        # plt.imshow(source[0][0].cpu().detach().numpy())
+        # plt.show()
+
+
         z = torch.randn(batch_size, ndim_total).to(device)
         target_pred, v_field_pred, log_jac = cinn.reverse_sample(z, cond)
 
-        from imageflow.visualize import streamplot_from_batch
-        # streamplot_from_batch(v_field_pred.cpu().detach().numpy())
-        # plt.close()
-        # plot_ff_(target, target_pred)
-        # plot_mff_(cond.cpu().detach().numpy(), target_pred.cpu().detach().numpy())
-        # plt.close
+        from imageflow.utils import streamplot_from_batch, plot_mff_
+        streamplot_from_batch(v_field_pred.cpu().detach().numpy())
+        plot_mff_(cond.cpu().detach().numpy(), target_pred.cpu().detach().numpy(), run_dir)
 
         rec_term = torch.mean(torch.sum(torch.square(target_pred - target), dim=(1, 2, 3)))
 
@@ -118,7 +138,7 @@ for e in range(n_epochs):
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term # + prior_term - jac_term
+        loss = rec_term + prior_term - jac_term
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -127,12 +147,12 @@ for e in range(n_epochs):
         jac_out = round(jac_term.item(), 2)
         loss_out = round(loss.item(), 2)
 
-        t = torch.cuda.get_device_properties(0).total_memory
-        r = torch.cuda.memory_reserved(0)
-        a = torch.cuda.memory_allocated(0)
-        f = t - a
+        # t = torch.cuda.get_device_properties(0).total_memory
+        # r = torch.cuda.memory_reserved(0)
+        # a = torch.cuda.memory_allocated(0)
+        # f = t - a
 
-        output = "{}\t{}\t{} = {} + {} - {} | {} ".format(e, i, loss_out, rec_out, prior_out, jac_out, f)
+        output = "{}\t{}\t{} = {} + {} - {}".format(e, i, loss_out, rec_out, prior_out, jac_out)
         output_log += (output + "\n")
         print(output)
 
@@ -143,28 +163,15 @@ for e in range(n_epochs):
 
         if i == 0:
             checkpoint = {
-                "model_type": type(cinn).__name__,
                 "state_dict": cinn.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
-            # from imageflow.utils import streamplot_from_batch, plot_mff_
-            import matplotlib.pyplot as plt
-            # import numpy as np
-            plot_dir = run_dir
-            streamplot_from_batch(v_field_pred.cpu().detach().numpy(), save_path=f"running_plots", show_image=True, idxs=0)
-            streamplot_from_batch(v_field.cpu().detach().numpy(), save_path=f"running_plots", show_image=True, idxs=0)
-            time.sleep(5)
-            plt.close()
-            imageflow.utils.plot_mff_(cond.cpu().detach().numpy(), target_pred.cpu().detach().numpy(), idx=0)
-            time.sleep(5)
-            plt.close()
 
     scheduler.step()
 
 checkpoint = {
-    "model_type": type(cinn).__name__,
     "state_dict": cinn.state_dict(),
     "optimizer_state": optimizer.state_dict(),
     "scheduler_state": scheduler.state_dict(),

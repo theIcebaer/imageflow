@@ -39,3 +39,19 @@ def test_component_basic_cinn(cond_net, net_type, cond_shape, init_method, devic
     assert z.shape == (64, 1568)
     assert jac.shape == (64,)
 
+def test_rot_loss():
+    from imageflow.losses import Rotation
+    x = torch.meshgrid(torch.arange(5), torch.arange(5))
+    f = (x[0] ** 2 + x[1] ** 2).reshape(1, 1, 5, 5).double()
+    field = torch.cat((f, f), dim=1)
+
+    rot_loss = Rotation()
+    rot, dx, dy = rot_loss.loss(field)
+
+    _dx_0, _dy_0 = torch.gradient(field[0, 0])
+    _dx_1, _dy_1 = torch.gradient(field[0, 1])
+    assert(torch.all(_dx_0 == dx[0, 0]))
+    assert(torch.all(_dy_0 == dy[0, 0]))
+    assert(torch.all(_dx_1 == dx[0, 1]))
+    assert(torch.all(_dy_1 == dy[0, 1]))
+

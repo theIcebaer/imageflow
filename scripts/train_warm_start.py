@@ -14,8 +14,6 @@ berechnet. Die erste wichtige frage ist, ob anschließend noch ein nll rückwär
 
 import os
 import datetime
-import time
-
 import torch
 import yaml
 
@@ -29,21 +27,21 @@ from imageflow.dataset import MnistDataset
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device("cpu")
 print(f"Script running with device {device}.")
-batch_size = 64
+batch_size = 1024
 val_batch_size = 1024
 test_batch_size = 256
 n_epochs = 50
 learning_rate = 1e-4
 weight_decay = 1e-5
-scheduler_config = {  # multistep scheduler config
-    "scheduler_gamma": 0.1,
-    "scheduler_milestones": [20, 40]
-}
-# scheduler_config = {  # cosine annealing scheduler config
-#     "T_max": 5,
+# scheduler_config = {  # multistep scheduler config
+#     "scheduler_gamma": 0.1,
+#     "scheduler_milestones": [20, 40]
 # }
+scheduler_config = {  # cosine annealing scheduler config
+    "T_max": 5,
+}
 
-init_method = 'xavier'
+init_method = 'gaussian'
 
 
 augm_sigma = 0.08
@@ -63,7 +61,7 @@ data_set = MnistDataset(os.path.join(data_dir, "mnist_rnd_distortions_1.hdf5"))
 train_set, val_set, test_set = torch.utils.data.random_split(data_set, [47712, 4096, 8192],
                                                              generator=torch.Generator().manual_seed(42))
 train_loader = DataLoader(train_set, batch_size=batch_size, drop_last=True)
-val_loader = DataLoader(val_set, batch_size=val_batch_size, drop_last=True, shuffle=False)
+val_loader = DataLoader(val_set, batch_size=val_batch_size, drop_last=True)
 test_loader = DataLoader(test_set, batch_size=test_batch_size, drop_last=True)
 print("...done.")
 
@@ -73,11 +71,19 @@ cinn.to(device)
 cinn.train()
 print("...done.")
 
+print("Load pretrained model...")
+model_dir = ""
+model_dict = torch.load(model_dir)
+state_dict = {k: v for k, v in model_dict['state_dict'].items() if 'tmp_var' not in k}
+cinn = Reg_mnist_cINN(device=device)
+cinn.to(device)
+cinn.load_state_dict(state_dict)
+print("...done")
+
 train_params = [p for p in cinn.parameters() if p.requires_grad]
 optimizer = torch.optim.Adam(train_params, lr=learning_rate, weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_config['scheduler_milestones'],
-                                                 gamma=scheduler_config['scheduler_gamma'])
-# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, scheduler_config['T_max'])
+# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=scheduler_milestones, gamma=scheduler_gamma)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, scheduler_config['T_max'])
 
 print("preparing run directory...")
 os.mkdir(run_dir)
@@ -101,13 +107,6 @@ for e in range(n_epochs):
         z = torch.randn(batch_size, ndim_total).to(device)
         target_pred, v_field_pred, log_jac = cinn.reverse_sample(z, cond)
 
-        from imageflow.visualize import streamplot_from_batch
-        # streamplot_from_batch(v_field_pred.cpu().detach().numpy())
-        # plt.close()
-        # plot_ff_(target, target_pred)
-        # plot_mff_(cond.cpu().detach().numpy(), target_pred.cpu().detach().numpy())
-        # plt.close
-
         rec_term = torch.mean(torch.sum(torch.square(target_pred - target), dim=(1, 2, 3)))
 
         z_prior, prior_jac = cinn(v_field_pred, c=cond)
@@ -118,7 +117,7 @@ for e in range(n_epochs):
 
         jac_term = torch.mean(log_jac)
 
-        loss = rec_term # + prior_term - jac_term
+        loss = rec_term + prior_term - jac_term
 
         rec_out = round(rec_term.item(), 2)
         prior_out = round(prior_term.item(), 2)
@@ -143,28 +142,15 @@ for e in range(n_epochs):
 
         if i == 0:
             checkpoint = {
-                "model_type": type(cinn).__name__,
                 "state_dict": cinn.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
             }
             torch.save(checkpoint, os.path.join(run_dir, 'checkpoints/model_{}_{}.pt'.format(e, i)))
-            # from imageflow.utils import streamplot_from_batch, plot_mff_
-            import matplotlib.pyplot as plt
-            # import numpy as np
-            plot_dir = run_dir
-            streamplot_from_batch(v_field_pred.cpu().detach().numpy(), save_path=f"running_plots", show_image=True, idxs=0)
-            streamplot_from_batch(v_field.cpu().detach().numpy(), save_path=f"running_plots", show_image=True, idxs=0)
-            time.sleep(5)
-            plt.close()
-            imageflow.utils.plot_mff_(cond.cpu().detach().numpy(), target_pred.cpu().detach().numpy(), idx=0)
-            time.sleep(5)
-            plt.close()
 
     scheduler.step()
 
 checkpoint = {
-    "model_type": type(cinn).__name__,
     "state_dict": cinn.state_dict(),
     "optimizer_state": optimizer.state_dict(),
     "scheduler_state": scheduler.state_dict(),
